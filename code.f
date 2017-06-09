@@ -1,0 +1,1 @@
+10 IF 5=5 THEN PRINT "a"
