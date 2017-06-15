@@ -6,9 +6,17 @@
 #include <limits.h>
 
 #define NEXT_LINE INT_MAX
+#define PASS_LINE INT_MIN
+#define IF_EQUAL 0
+#define IF_NOT_EQUAL 1
+#define IF_LESS_THAN 2
+#define IF_MORE_THAN 3
+#define IF_LESS_EQUAL 4
+#define IF_MORE_EQUAL 5
 
 extern char* yytext;
-typedef enum { typePrint, typeGoto, typeInput, typeRem, typeIf } nodeEnum;
+extern int yylval;
+typedef enum { typePrint, typeGoto, typeInput, typeRem, typeIf_NN, typeIf_NV, typeIf_VN, typeIf_VV, typeLet } nodeEnum;
 
 typedef struct var{
 	char name[1024];
@@ -32,11 +40,40 @@ typedef struct {
 
 typedef struct {
     int type;  
-    char left[1024];   
-    char right[1024]; 
-    int left_val;   
-    int right_val;           
-} ifNodeType;
+    int calType;
+    int left, right;   
+    int go;     
+} ifNode_NN_Type;
+
+typedef struct {
+    int type;
+    int calType;  
+    int left;
+    char right[1024];  
+    int go;           
+} ifNode_NV_Type;
+
+typedef struct {
+    int type;  
+    int calType;
+    char left[1024];  
+    int right;      
+    int go;       
+} ifNode_VN_Type;
+
+typedef struct {
+    int type;  
+    int calType;
+    char left[1024];        
+    char right[1024];
+    int go;             
+} ifNode_VV_Type;
+
+typedef struct {
+    int type;  
+    char name[1024];  
+    int val;              
+} letNodeType;
 
 typedef struct nodeType {
     	nodeEnum type;           
@@ -45,7 +82,11 @@ typedef struct nodeType {
 		printNodeType print;      
 		gotoNodeType go;    
 		inputNodeType input; 
-		ifNodeType ifNode;        
+		ifNode_NN_Type ifNode_nn;
+		ifNode_NV_Type ifNode_nv;    
+		ifNode_VN_Type ifNode_vn;    
+		ifNode_VV_Type ifNode_vv;     
+		letNodeType let;       
     	};
 } nodeType;
 
@@ -62,6 +103,10 @@ int idx = 0;
 int compare1 = 0;
 int compare2 = 0;
 int compare_result = 0;
+int save_yyval = 0;
+char save_var[1024];
+int is_if = 0;
+int gogo = 0;
 
 nodeType * printNode(char str[1024], int p_type){
 	nodeType *p = (nodeType *)malloc(sizeof(nodeType));
@@ -91,18 +136,56 @@ nodeType * remNode(){
 	return p;
 }
 
-nodeType * ifNode(int type, int left_i, int right_i, char left[1024], char right[1024]){
+nodeType * ifNode_NN(int left, int right, int calType){
 	nodeType *p = (nodeType *)malloc(sizeof(nodeType));
+	p->ifNode_nn.calType = calType;
+	p->type = typeIf_NN;
+	p->ifNode_nn.left = left;
+	p->ifNode_nn.right = right;
+	return p;
+}
 
-	p->type = typeIf;
-	p->ifNode.type = type;
+nodeType * ifNode_NV(int left, char right[1024], int calType){
+	nodeType *p = (nodeType *)malloc(sizeof(nodeType));
+	p->ifNode_nv.calType = calType;
+	p->type = typeIf_NV;
+	p->ifNode_nv.left = left;
+	strcpy(p->ifNode_nv.right, right);
+	return p;
+}
+
+nodeType * ifNode_VN(char left[1024], int right, int calType){
+	nodeType *p = (nodeType *)malloc(sizeof(nodeType));
+	p->ifNode_vn.calType = calType;
+	p->type = typeIf_VN;
+	strcpy(p->ifNode_vn.left, left);
+	p->ifNode_vn.right = right;
+	return p;
+}
+
+nodeType * ifNode_VV(char left[1024], char right[1024], int calType){
+	nodeType *p = (nodeType *)malloc(sizeof(nodeType));
+	p->ifNode_vv.calType = calType;
+	p->type = typeIf_VV;
+	strcpy(p->ifNode_vv.left, left);
+	strcpy(p->ifNode_vv.right, right);
+	return p;
+}
+
+nodeType * letNode(char name[1024], int val){
+	nodeType *p = (nodeType *)malloc(sizeof(nodeType));
+	p->type = typeLet;
+	strcpy(p->let.name, name);
+	p->let.val = val;
 	return p;
 }
 
 int execute(triple L){
 	int i = 0;
-	int exist = 0;
-	int inp = 0;
+	int exist = 0, exist_r = 0;
+	int inp = 0, left = 0, right = 0;
+	char right_str[1024];
+	char left_str[1024];
 	switch(L.C->type){
 		case typePrint:
 			if(L.C->print.type == 1){
@@ -143,6 +226,137 @@ int execute(triple L){
 			return NEXT_LINE;
 		case typeRem:
 			return NEXT_LINE;
+		case typeIf_NN:
+			left = L.C->ifNode_nn.left;
+			right = L.C->ifNode_nn.right;
+			if(L.C->ifNode_nn.calType == IF_EQUAL){
+				if(left == right)
+					return L.C->ifNode_nn.go;
+				else
+					return NEXT_LINE;
+			}
+			else if(L.C->ifNode_nn.calType == IF_LESS_THAN){
+				if(left > right)
+					return L.C->ifNode_nn.go;
+				else
+					return NEXT_LINE;
+			}
+			else if(L.C->ifNode_nn.calType == IF_MORE_THAN){
+				if(left < right)
+					return L.C->ifNode_nn.go;
+				else
+					return NEXT_LINE;
+			}
+		case typeIf_NV:
+			left = L.C->ifNode_nv.left;
+			strcpy(right_str, L.C->ifNode_nv.right);
+			right = 0;
+			for(i = 0;i<idx;i++){
+				if(strcmp(table[i].name, right_str) == 0){
+					exist = 1;
+					right = table[i].val;
+				} 
+			}
+			if(L.C->ifNode_nv.calType == IF_EQUAL){
+				if(left == right)
+					return L.C->ifNode_nv.go;
+				else
+					return NEXT_LINE;
+			}
+			else if(L.C->ifNode_nv.calType == IF_LESS_THAN){
+				if(left > right)
+					return L.C->ifNode_nv.go;
+				else
+					return NEXT_LINE;
+			}
+			else if(L.C->ifNode_nv.calType == IF_MORE_THAN){
+				if(left < right)
+					return L.C->ifNode_nv.go;
+				else
+					return NEXT_LINE;
+			}
+		case typeIf_VN:
+			right = L.C->ifNode_vn.right;
+			strcpy(left_str, L.C->ifNode_vn.left);
+			left = 0;
+			for(i = 0;i<idx;i++){
+				if(strcmp(table[i].name, left_str) == 0){
+					exist = 1;
+					left = table[i].val;
+				} 
+			}
+			if(L.C->ifNode_vn.calType == IF_EQUAL){
+				if(left == right)
+					return L.C->ifNode_vn.go;
+				else
+					return NEXT_LINE;
+			}
+			else if(L.C->ifNode_vn.calType == IF_LESS_THAN){
+				if(left > right)
+					return L.C->ifNode_vn.go;
+				else
+					return NEXT_LINE;
+			}
+			else if(L.C->ifNode_vn.calType == IF_MORE_THAN){
+				if(left < right)
+					return L.C->ifNode_vn.go;
+				else
+					return NEXT_LINE;
+			}
+		case typeIf_VV:
+			right = 0;
+			strcpy(left_str, L.C->ifNode_vv.left);
+			strcpy(right_str, L.C->ifNode_vv.right);
+			left = 0;
+			exist_r = 0;
+			for(i = 0;i<idx;i++){
+				if(strcmp(table[i].name, left_str) == 0){
+					exist = 1;
+					left = table[i].val;
+				} 
+			}
+			for(i = 0;i<idx;i++){
+				if(strcmp(table[i].name, right_str) == 0){
+					exist_r = 1;
+					right = table[i].val;
+				} 
+			}
+			if(L.C->ifNode_vv.calType == IF_EQUAL){
+				if(left == right)
+					return L.C->ifNode_vv.go;
+				else
+					return NEXT_LINE;
+			}
+			else if(L.C->ifNode_vv.calType == IF_LESS_THAN){
+				if(left > right)
+					return L.C->ifNode_vv.go;
+				else
+					return NEXT_LINE;
+			}
+			else if(L.C->ifNode_vv.calType == IF_MORE_THAN){
+				if(left < right)
+					return L.C->ifNode_vv.go;
+				else
+					return NEXT_LINE;
+			}
+		case typeLet:
+			for(i = 0;i<idx;i++){
+				if(strcmp(table[i].name, L.C->let.name) == 0){
+					exist = 1;
+					if(table[i].val == NULL)	
+						table[i].val = malloc(sizeof(L.C->input.value));
+					table[i].val = L.C->let.val;
+					table[i].size = sizeof(L.C->let.val)/4;
+				} 
+			}
+			if(exist == 0){
+				table[idx].val = malloc(sizeof(L.C->let.val));
+				table[idx].val = L.C->let.val;
+				strcpy(table[idx].name, L.C->let.name);
+				idx++;
+			}
+			return NEXT_LINE;
+			
 		default:
 			return 0;
 	}
@@ -152,18 +366,40 @@ int execute(triple L){
 %token PRINT INPUT LET GOTO IF REM VAR NUM STRING EQUALS BIGGER LESS EOL THEN
 %%
 program: 
-        NUM statement EOL {codes[code_idx].C = $2; code_idx++; printf("%d\n", $2);}
-	| program NUM statement EOL {codes[code_idx].C = $3; code_idx++;}
+        NUM statement EOL {
+		codes[code_idx].C = $2; 
+		if(is_if == 1){
+			codes[code_idx].C->ifNode_nn.go = gogo;
+			codes[code_idx].C->ifNode_nv.go = gogo;
+			codes[code_idx].C->ifNode_vn.go = gogo;
+			codes[code_idx].C->ifNode_vv.go = gogo;
+		} 
+		is_if = 0; 
+		code_idx++;}
+	| program NUM statement EOL {
+		codes[code_idx].C = $3; 
+		if(is_if == 1){
+			codes[code_idx].C->ifNode_nn.go = gogo;
+			codes[code_idx].C->ifNode_nv.go = gogo;
+			codes[code_idx].C->ifNode_vn.go = gogo;
+			codes[code_idx].C->ifNode_vv.go = gogo;
+		} 
+		is_if = 0; 
+		code_idx++;}
 ;
 statement:
 	PRINT print {$$ = $2;}
 	| INPUT input  {$$ = $2;}
-	| IF if THEN {codes[code_idx].C = $2; code_idx++;} statement {$$ = $5; printf("%d\n", $$);}
+	| IF if THEN NUM {is_if = 1; gogo = yylval; $$ = $2;}
 	| REM {$$ = remNode();}
 	| GOTO goto {$$ = $2;}
+	| LET let {$$ = $2;}
 ; 
+let:
+	VAR {strcpy(save_var, yytext);} EQUALS NUM {$$ = letNode(save_var, yylval);}
+;
 print:
-	STRING {$$ = printNode(yytext, 0); printf("%d\n", $$);}
+	STRING {$$ = printNode(yytext, 0);}
 	| VAR {
 		$$ = printNode(yytext, 1);
 	}
@@ -174,8 +410,43 @@ input:
 	}
 ;
 if:
-	NUM EQUALS NUM{ $$ = ifNode(0, $1, $3, "", ""); }
-; 
+	NUM {save_yyval = yylval;} operator_n {$$ = $3;}
+	| VAR {strcpy(save_var, yytext);} operator_v {$$ = $3;}
+;
+operator_n:
+	EQUALS equal_n {$$ = $2;}
+	| BIGGER bigger_n {$$ = $2;}
+	| LESS less_n {$$ = $2;}
+;
+operator_v:
+	EQUALS equal_v {$$ = $2;}
+	| BIGGER bigger_v {$$ = $2;}
+	| LESS less_v {$$ = $2;}
+;
+equal_n:
+	NUM {$$ = ifNode_NN(save_yyval, yylval, IF_EQUAL);}
+	| VAR {$$ = ifNode_NV(yytext, yylval, IF_EQUAL);}
+;
+equal_v:
+	NUM {$$ = ifNode_VN(save_var, save_yyval, IF_EQUAL);}
+	| VAR {$$ = ifNode_VV(save_var, yytext, IF_EQUAL);}
+;
+bigger_n:
+	NUM {$$ = ifNode_NN(save_yyval, yylval, IF_MORE_THAN);}
+	| VAR {$$ = ifNode_NV(yytext, yylval, IF_MORE_THAN);}
+;
+bigger_v:
+	NUM {$$ = ifNode_VN(save_var, save_yyval, IF_MORE_THAN);}
+	| VAR {$$ = ifNode_VV(save_var, yytext, IF_MORE_THAN);}
+;
+less_n:
+	NUM {$$ = ifNode_NN(save_yyval, yylval, IF_LESS_THAN);}
+	| VAR {$$ = ifNode_NV(yytext, yylval, IF_LESS_THAN);}
+;
+less_v:
+	NUM {$$ = ifNode_VN(save_var, save_yyval, IF_LESS_THAN);}
+	| VAR {$$ = ifNode_VV(save_var, yytext, IF_LESS_THAN);}
+;
 goto:
 	NUM { $$ = gotoNode(atoi(yytext)); }
 ;

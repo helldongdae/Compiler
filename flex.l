@@ -16,8 +16,8 @@ extern int yylval;
 [<]					{return BIGGER;}
 [>]					{return LESS;}
 [a-zA-Z][a-zA-Z_0-9]* 			{return VAR;}
-[0-9]*					{yylval = atoi(yytext); return NUM;}
-["][a-zA-Z 0-9]*["]			{return STRING;}
+[-]*[0-9]+					{yylval = atoi(yytext); return NUM;}
+["][^\n]*["]			{return STRING;}
 [\n\t]					{return EOL;}
 [ ]					{;}
 .					{;}
