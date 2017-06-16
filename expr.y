@@ -16,7 +16,7 @@
 
 extern char* yytext;
 extern int yylval;
-typedef enum { typePrint, typeGoto, typeInput, typeRem, typeIf_NN, typeIf_NV, typeIf_VN, typeIf_VV, typeLet } nodeEnum;
+typedef enum { typePrint, typeGoto, typeInput, typeRem, typeIf_NN, typeIf_NV, typeIf_VN, typeIf_VV, typeLet, typeArrLet, typeDim, typeTwoDim } nodeEnum;
 
 typedef struct var{
 	char name[1024];
@@ -75,6 +75,25 @@ typedef struct {
     int val;              
 } letNodeType;
 
+typedef struct {
+    int type;  
+    char name[1024];  
+    int val;  
+    int idx;            
+} letArrNodeType;
+
+typedef struct {
+    int type;  
+    char name[1024];  
+    int size;            
+} dimNodeType;
+
+typedef struct {
+    int type;  
+    char name[1024];  
+    int row, col;            
+} twodimNodeType;
+
 typedef struct nodeType {
     	nodeEnum type;           
 
@@ -87,6 +106,9 @@ typedef struct nodeType {
 		ifNode_VN_Type ifNode_vn;    
 		ifNode_VV_Type ifNode_vv;     
 		letNodeType let;       
+		letArrNodeType letArr;   
+		dimNodeType dim;
+		twodimNodeType twodim;
     	};
 } nodeType;
 
@@ -104,9 +126,11 @@ int compare1 = 0;
 int compare2 = 0;
 int compare_result = 0;
 int save_yyval = 0;
+int arr_idx = 0;
 char save_var[1024];
 int is_if = 0;
 int gogo = 0;
+int row = 0, col = 0;
 
 nodeType * printNode(char str[1024], int p_type){
 	nodeType *p = (nodeType *)malloc(sizeof(nodeType));
@@ -179,6 +203,33 @@ nodeType * letNode(char name[1024], int val){
 	p->let.val = val;
 	return p;
 }
+
+nodeType * letArrNode(char name[1024], int val, int idx){
+	nodeType *p = (nodeType *)malloc(sizeof(nodeType));
+	p->type = typeLet;
+	strcpy(p->letArr.name, name);
+	p->letArr.val = val;
+	p->letArr.idx = idx;
+	return p;
+}
+
+nodeType * dimNode(char name[1024], int size){
+	nodeType *p = (nodeType *)malloc(sizeof(nodeType));
+	p->type = typeDim;
+	strcpy(p->dim.name, name);
+	p->dim.size = size;
+	return p;
+}
+
+nodeType * twodimNode(char name[1024], int row, int col){
+	nodeType *p = (nodeType *)malloc(sizeof(nodeType));
+	p->type = typeTwoDim;
+	strcpy(p->twodim.name, name);
+	p->twodim.row = row;
+	p->twodim.col = col;
+	return p;
+}
+
 
 int execute(triple L){
 	int i = 0;
@@ -344,7 +395,7 @@ int execute(triple L){
 				if(strcmp(table[i].name, L.C->let.name) == 0){
 					exist = 1;
 					if(table[i].val == NULL)	
-						table[i].val = malloc(sizeof(L.C->input.value));
+						table[i].val = malloc(sizeof(L.C->let.val));
 					table[i].val = L.C->let.val;
 					table[i].size = sizeof(L.C->let.val)/4;
 				} 
@@ -356,14 +407,50 @@ int execute(triple L){
 				idx++;
 			}
 			return NEXT_LINE;
-			
+		case typeArrLet:
+			for(i = 0;i<idx;i++){
+				if(strcmp(table[i].name, L.C->letArr.name) == 0){
+					exist = 1;
+					if(table[i].val == NULL)	
+						table[i].val = malloc(sizeof(L.C->letArr.val));
+					table[i].val = L.C->let.val;
+					table[i].size = sizeof(L.C->let.val)/4;
+				} 
+			}
+			if(exist == 0){
+				table[idx].val = malloc(sizeof(L.C->let.val));
+				table[idx].val = L.C->let.val;
+				strcpy(table[idx].name, L.C->let.name);
+				idx++;
+			}
+			return NEXT_LINE;
+		case typeDim:
+			for(i = 0;i<idx;i++){
+				if(strcmp(table[i].name, L.C->dim.name) == 0){
+					exist = 1;
+					if(table[i].val == NULL)	
+						table[i].val = malloc(sizeof(L.C->dim.size));
+					table[i].size = sizeof(table[i].val)/4;
+				} 
+			}
+			return NEXT_LINE;
+		case typeTwoDim:
+			for(i = 0;i<idx;i++){
+				if(strcmp(table[i].name, L.C->twodim.name) == 0){
+					exist = 1;
+					if(table[i].val == NULL)	
+						table[i].val = malloc(sizeof(int) * (L.C->twodim.row*L.C->twodim.col));
+					table[i].size = sizeof(table[i].val)/4;
+				} 
+			}
+			return NEXT_LINE;
 		default:
 			return 0;
 	}
 }
 
 %}
-%token PRINT INPUT LET GOTO IF REM VAR NUM STRING EQUALS BIGGER LESS EOL THEN
+%token PRINT INPUT LET GOTO IF REM VAR NUM STRING EQUALS BIGGER LESS EOL THEN PLUS MINUS MUL DIV MOD DIM TWODIM AS O_BRACKET C_BRACKET
 %%
 program: 
         NUM statement EOL {
@@ -394,9 +481,15 @@ statement:
 	| REM {$$ = remNode();}
 	| GOTO goto {$$ = $2;}
 	| LET let {$$ = $2;}
+	| DIM VAR {strcpy(save_var, yytext);} AS O_BRACKET NUM C_BRACKET {$$ = dimNode(save_var, yylval);}
+	| TWODIM VAR {strcpy(save_var, yytext);} AS O_BRACKET NUM {row = yylval;} C_BRACKET O_BRACKET NUM C_BRACKET {$$ = twodimNode(save_var, row, yylval);}
 ; 
 let:
-	VAR {strcpy(save_var, yytext);} EQUALS NUM {$$ = letNode(save_var, yylval);}
+	VAR {strcpy(save_var, yytext);} let_is_arr {$$ = $3;}
+;
+let_is_arr:
+	EQUALS NUM {$$ = letNode(save_var, yylval);}
+	| "[" NUM "]" {arr_idx = yylval;} EQUALS NUM {$$ = letArrNode(save_var, yylval, arr_idx);}
 ;
 print:
 	STRING {$$ = printNode(yytext, 0);}

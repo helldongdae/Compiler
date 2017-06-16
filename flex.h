@@ -12,5 +12,13 @@
 #define LESS 269
 #define EOL 270
 #define THEN 271
-
-
+#define PLUS 272
+#define MINUS 273
+#define MUL 274
+#define DIV 275
+#define MOD 276
+#define DIM 277
+#define TWODIM 278
+#define AS 279
+#define O_BRACKET 280
+#define C_BRACKET 281

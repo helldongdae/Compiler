@@ -9,3 +9,14 @@
 90 PRINT "C+"
 100 GOTO 30
 110 PRINT "CONGRATULATIONS"
+
+expr:
+	VAR ope
+	| NUM ope
+;
+ope:
+	PLUS expr
+	| MINUS expr
+	| DIV expr
+	| MUL expr
+	| MOD expr
